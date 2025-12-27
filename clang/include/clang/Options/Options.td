@@ -9758,3 +9758,9 @@ def wasm_opt : Flag<["--"], "wasm-opt">,
   Group<m_Group>,
   HelpText<"Enable the wasm-opt optimizer (default)">,
   MarshallingInfoNegativeFlag<LangOpts<"NoWasmOpt">>;
+
+def fp3039experimental : Flag<["-"], "fp3039experimental">,
+  Group<f_Group>,
+  Visibility<[ClangOption, CC1Option]>,
+  HelpText<"Implement Experimental P3039">,
+  MarshallingInfoFlag<LangOpts<"P3039Experimental">>;

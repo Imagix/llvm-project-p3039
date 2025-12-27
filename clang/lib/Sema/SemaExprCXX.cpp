@@ -6914,6 +6914,18 @@ ExprResult Sema::ActOnStartCXXMemberReference(Scope *S, Expr *Base,
       if (Result.isInvalid()) {
         if (NoArrowOperatorFound) {
           if (FirstIteration) {
+            // P3039: fall back to (*x).m semantics when no operator-> found
+            if (getLangOpts().P3039Experimental) {
+              // Try to dereference using operator*
+              ExprResult DerefResult = BuildUnaryOp(S, OpLoc, UO_Deref, Base);
+              if (!DerefResult.isInvalid()) {
+                Base = DerefResult.get();
+                BaseType = Base->getType();
+                OpKind = tok::period;
+                break;
+              }
+              // If operator* also fails, fall through to normal error
+            }
             Diag(OpLoc, diag::err_typecheck_member_reference_suggestion)
               << BaseType << 1 << Base->getSourceRange()
               << FixItHint::CreateReplacement(OpLoc, ".");

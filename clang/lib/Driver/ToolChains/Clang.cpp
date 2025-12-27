@@ -6391,6 +6391,9 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
   if (Args.hasArg(options::OPT_fexperimental_new_constant_interpreter))
     CmdArgs.push_back("-fexperimental-new-constant-interpreter");
 
+  if (Args.hasArg(options::OPT_fp3039experimental))
+    CmdArgs.push_back("-fp3039experimental");
+
   if (Arg *A = Args.getLastArg(options::OPT_fbracket_depth_EQ)) {
     CmdArgs.push_back("-fbracket-depth");
     CmdArgs.push_back(A->getValue());

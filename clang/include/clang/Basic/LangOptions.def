@@ -507,6 +507,9 @@ LANGOPT(EnableLifetimeSafetyInference, 1, 0, NotCompatible, "Experimental lifeti
 
 LANGOPT(PreserveVec3Type, 1, 0, NotCompatible, "Preserve 3-component vector type")
 
+LANGOPT(P3039Experimental, 1, 0, NotCompatible,
+        "Use expr.ref if over.ref fails (P3039R1)" )
+
 #undef LANGOPT
 #undef ENUM_LANGOPT
 #undef VALUE_LANGOPT
