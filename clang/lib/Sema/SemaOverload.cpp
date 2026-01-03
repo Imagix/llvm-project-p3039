@@ -15688,6 +15688,22 @@ ExprResult Sema::CreateOverloadedBinOp(SourceLocation OpLoc,
           // FIXME: Recover by calling the found function.
           return ExprError();
 
+        // P3039: For ->*, fall back to (*x).*m semantics when no operator->* found
+        if (getLangOpts().P3039Experimental) {
+          if (Opc == BO_PtrMemI && !Args[0]->getType()->isPointerType()) {
+            // Try to dereference using operator*
+            UnresolvedSet<16> Functions;
+            ExprResult DerefResult =
+                CreateOverloadedUnaryOp(OpLoc, UO_Deref, Functions, Args[0]);
+            if (!DerefResult.isInvalid()) {
+              // Successfully dereferenced; use .* instead of ->*
+              return CreateBuiltinBinOp(OpLoc, BO_PtrMemD, DerefResult.get(),
+                                        Args[1]);
+            }
+            // If operator* also fails, fall through to normal error
+          }
+        }
+
         // No viable function; try to create a built-in operation, which will
         // produce an error. Then, show the non-viable candidates.
         Result = CreateBuiltinBinOp(OpLoc, Opc, Args[0], Args[1]);
