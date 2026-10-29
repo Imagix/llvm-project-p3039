@@ -162,7 +162,7 @@ public:
   Instruction *emitTrailingFence(IRBuilderBase &Builder, Instruction *Inst,
                                  AtomicOrdering Ord) const override;
   TargetLoweringBase::AtomicExpansionKind
-  shouldExpandAtomicRMWInIR(AtomicRMWInst *AI) const override;
+  shouldExpandAtomicRMWInIR(const AtomicRMWInst *AI) const override;
   ISD::NodeType getExtendForAtomicOps() const override {
     return ISD::ANY_EXTEND;
   }
@@ -261,8 +261,8 @@ public:
   SDValue makeAddress(SDValue Op, SelectionDAG &DAG) const;
 
   bool isOffsetFoldingLegal(const GlobalAddressSDNode *GA) const override;
-  bool isFPImmLegal(const APFloat &Imm, EVT VT,
-                    bool ForCodeSize) const override;
+  FPImmAction getFPImmAction(const APFloat &Imm, EVT VT,
+                             bool ForCodeSize) const override;
   /// Returns true if the target allows unaligned memory accesses of the
   /// specified type.
   bool allowsMisalignedMemoryAccesses(EVT VT, unsigned AS, Align A,
@@ -293,7 +293,6 @@ public:
   bool isCtlzFast() const override { return true; }
   // VE has NND instruction.
   bool hasAndNot(SDValue Y) const override;
-
   /// } Target Optimization
 };
 } // namespace llvm

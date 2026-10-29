@@ -154,11 +154,11 @@ void MarkLiveImpl<RecordWhyLive>::markTransitively() {
       assert(isec->live && "We mark as live when pushing onto the worklist!");
 
       // Mark all symbols listed in the relocation table for this section.
-      for (const Reloc &r : isec->relocs) {
-        if (auto *s = r.referent.dyn_cast<Symbol *>())
+      for (const Relocation &r : isec->relocs) {
+        if (auto *s = dyn_cast<Symbol *>(r.referent))
           addSym(s, entry);
         else
-          enqueue(cast<InputSection *>(r.referent), r.addend, entry);
+          enqueue(cast<InputSection *>(r.referent), r.getAddend(), entry);
       }
       for (Defined *d : getInputSection(entry)->symbols)
         addSym(d, entry);
@@ -172,8 +172,8 @@ void MarkLiveImpl<RecordWhyLive>::markTransitively() {
       if (!(isec->getFlags() & S_ATTR_LIVE_SUPPORT) || isec->live)
         continue;
 
-      for (const Reloc &r : isec->relocs) {
-        if (auto *s = r.referent.dyn_cast<Symbol *>()) {
+      for (const Relocation &r : isec->relocs) {
+        if (auto *s = dyn_cast<Symbol *>(r.referent)) {
           if (s->isLive()) {
             InputSection *referentIsec = nullptr;
             if (auto *d = dyn_cast<Defined>(s))
@@ -182,7 +182,7 @@ void MarkLiveImpl<RecordWhyLive>::markTransitively() {
           }
         } else {
           auto *referentIsec = cast<InputSection *>(r.referent);
-          if (referentIsec->isLive(r.addend))
+          if (referentIsec->isLive(r.getAddend()))
             enqueue(isec, 0, makeEntry(referentIsec, nullptr));
         }
       }

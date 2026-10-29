@@ -74,8 +74,10 @@ class flat_multiset {
 
   friend __flat_set_utils;
 
-  static_assert(is_same_v<_Key, typename _KeyContainer::value_type>);
-  static_assert(!is_same_v<_KeyContainer, std::vector<bool>>, "vector<bool> is not a sequence container");
+  static_assert(is_same_v<_Key, typename _KeyContainer::value_type>,
+                "The stored elements' key type must match the underlying key container's value_type.");
+  static_assert(!__is_std_vector_bool_v<_KeyContainer>,
+                "The underlying key container must not be std::vector<bool> because it is not a sequence container.");
 
 public:
   // types
@@ -111,15 +113,12 @@ public:
 #  endif // _LIBCPP_HAS_EXCEPTIONS
       : __keys_(std::move(__other.__keys_)), __compare_(std::move(__other.__compare_)) {
     __other.clear();
-#  if _LIBCPP_HAS_EXCEPTIONS
-  } catch (...) {
-    __other.clear();
-    // gcc does not like the `throw` keyword in a conditionally noexcept function
-    if constexpr (!(is_nothrow_move_constructible_v<_KeyContainer> && is_nothrow_move_constructible_v<_Compare>)) {
-      throw;
-    }
-#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
+#  if _LIBCPP_HAS_EXCEPTIONS
+  catch (...) {
+    __other.clear();
+  }
+#  endif // _LIBCPP_HAS_EXCEPTIONS
 
   _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 explicit flat_multiset(const key_compare& __comp)
       : __keys_(), __compare_(__comp) {}
@@ -230,12 +229,12 @@ public:
       : __keys_(std::make_obj_using_allocator<container_type>(__alloc, std::move(__other.__keys_))),
         __compare_(std::move(__other.__compare_)) {
     __other.clear();
-#  if _LIBCPP_HAS_EXCEPTIONS
-  } catch (...) {
-    __other.clear();
-    throw;
-#  endif // _LIBCPP_HAS_EXCEPTIONS
   }
+#  if _LIBCPP_HAS_EXCEPTIONS
+  catch (...) {
+    __other.clear();
+  }
+#  endif // _LIBCPP_HAS_EXCEPTIONS
 
   template <class _InputIterator, class _Allocator>
     requires(__has_input_iterator_category<_InputIterator>::value && uses_allocator<container_type, _Allocator>::value)
@@ -745,15 +744,6 @@ private:
 
   _KeyContainer __keys_;
   _LIBCPP_NO_UNIQUE_ADDRESS key_compare __compare_;
-
-  struct __key_equiv {
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 __key_equiv(key_compare __c) : __comp_(__c) {}
-    _LIBCPP_HIDE_FROM_ABI _LIBCPP_CONSTEXPR_SINCE_CXX26 bool
-    operator()(const_reference __x, const_reference __y) const {
-      return !__comp_(std::get<0>(__x), std::get<0>(__y)) && !__comp_(std::get<0>(__y), std::get<0>(__x));
-    }
-    key_compare __comp_;
-  };
 };
 
 template <class _KeyContainer, class _Compare = less<typename _KeyContainer::value_type>>

@@ -48,11 +48,11 @@ std::optional<StringRef> TypeConstraint::getBuilderCall() const {
 
   // Check to see if this type constraint has a builder call.
   const llvm::RecordVal *builderCall = baseType->getValue("builderCall");
-  if (!builderCall || !builderCall->getValue())
+  if (!builderCall)
     return std::nullopt;
   return TypeSwitch<const llvm::Init *, std::optional<StringRef>>(
              builderCall->getValue())
-      .Case<llvm::StringInit>([&](auto *init) {
+      .Case([&](const llvm::StringInit *init) {
         StringRef value = init->getValue();
         return value.empty() ? std::optional<StringRef>() : value;
       })

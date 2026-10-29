@@ -7,6 +7,8 @@ from lldbsuite.test.lldbgdbclient import GDBRemoteTestBase
 
 class TestPlatformAttach(GDBRemoteTestBase):
     @skipIfRemote
+    # Sometimes times out on Windows.
+    # https://github.com/llvm/llvm-project/issues/234e982
     @skipIfWindows
     def test_attach(self):
         """Test attaching by name"""
@@ -49,10 +51,12 @@ class TestPlatformAttach(GDBRemoteTestBase):
 
         attach_info = lldb.SBAttachInfo()
         attach_info.SetExecutable("foo")
+        attach_info.SetProcessPluginName("wasm")
 
         target = lldb.SBTarget()
         process = platform.Attach(attach_info, self.dbg, target, error)
         self.assertSuccess(error)
         self.assertEqual(process.GetProcessID(), 95117)
+        self.assertEqual(process.GetPluginName(), "wasm")
 
         platform.DisconnectRemote()

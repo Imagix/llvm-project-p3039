@@ -9,6 +9,7 @@
 #include "MsvcStl.h"
 
 #include "lldb/DataFormatters/TypeSynthetic.h"
+#include "llvm/Support/ErrorExtras.h"
 
 using namespace lldb;
 
@@ -25,7 +26,7 @@ public:
 
   lldb::ChildCacheState Update() override;
 
-  llvm::Expected<size_t> GetIndexOfChildWithName(ConstString name) override;
+  llvm::Expected<size_t> GetIndexOfChildWithName(llvm::StringRef name) override;
 
 private:
   ValueObject *m_storage = nullptr;
@@ -51,7 +52,7 @@ lldb::ValueObjectSP
 lldb_private::formatters::MsvcStlAtomicSyntheticFrontEnd::GetChildAtIndex(
     uint32_t idx) {
   if (idx == 0 && m_storage && m_element_type.IsValid())
-    return m_storage->Cast(m_element_type)->Clone(ConstString("Value"));
+    return m_storage->Cast(m_element_type)->Clone("Value");
   return nullptr;
 }
 
@@ -81,12 +82,12 @@ lldb_private::formatters::MsvcStlAtomicSyntheticFrontEnd::Update() {
   return lldb::ChildCacheState::eRefetch;
 }
 
-llvm::Expected<size_t> lldb_private::formatters::
-    MsvcStlAtomicSyntheticFrontEnd::GetIndexOfChildWithName(ConstString name) {
+llvm::Expected<size_t>
+lldb_private::formatters::MsvcStlAtomicSyntheticFrontEnd::
+    GetIndexOfChildWithName(llvm::StringRef name) {
   if (name == "Value")
     return 0;
-  return llvm::createStringError("Type has no child named '%s'",
-                                 name.AsCString());
+  return llvm::createStringErrorV("type has no child named '{0}'", name);
 }
 
 lldb_private::SyntheticChildrenFrontEnd *
@@ -99,11 +100,11 @@ lldb_private::formatters::MsvcStlAtomicSyntheticFrontEndCreator(
 
 bool lldb_private::formatters::MsvcStlAtomicSummaryProvider(
     ValueObject &valobj, Stream &stream, const TypeSummaryOptions &options) {
-  auto synth_sp = valobj.GetSyntheticValue();
+  ValueObjectSP synth_sp = valobj.GetSyntheticValue();
   if (!synth_sp)
     return false;
 
-  auto value_sp = synth_sp->GetChildAtIndex(0);
+  ValueObjectSP value_sp = synth_sp->GetChildAtIndex(0);
   std::string summary;
   if (value_sp->GetSummaryAsCString(summary, options) && !summary.empty()) {
     stream << summary;

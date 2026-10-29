@@ -30,10 +30,13 @@ endif ()
 
 add_flang_library(FortranEvaluate
   call.cpp
+  character-value.cpp
+  character-value-impl.cpp
   characteristics.cpp
   check-expression.cpp
   common.cpp
   complex.cpp
+  complex-value.cpp
   constant.cpp
   expression.cpp
   fold.cpp
@@ -48,10 +51,15 @@ add_flang_library(FortranEvaluate
   host.cpp
   initial-image.cpp
   integer.cpp
+  integer-value.cpp
+  integer-value-impl.cpp
   intrinsics.cpp
   intrinsics-library.cpp
   logical.cpp
+  logical-value.cpp
   real.cpp
+  real-value.cpp
+  real-value-impl.cpp
   shape.cpp
   static-data.cpp
   target.cpp
@@ -66,15 +74,8 @@ add_flang_library(FortranEvaluate
   ${LIBPGMATH}
   ${QUADMATHLIB}
 
-  LINK_COMPONENTS
-  Support
-
-  DEPENDS
-  acc_gen
-  omp_gen
-)
-
-target_precompile_headers(FortranEvaluate PRIVATE
+  DISABLE_PCH_REUSE
+  PRECOMPILE_HEADERS
   [["flang/Evaluate/common.h"]]
   [["flang/Evaluate/call.h"]]
   [["flang/Evaluate/traverse.h"]]
@@ -86,4 +87,11 @@ target_precompile_headers(FortranEvaluate PRIVATE
   [["flang/Evaluate/integer.h"]]
   [["flang/Evaluate/expression.h"]]
   [["flang/Evaluate/tools.h"]]
+
+  LINK_COMPONENTS
+  Support
+
+  DEPENDS
+  acc_gen
+  omp_gen
 )

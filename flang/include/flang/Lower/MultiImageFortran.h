@@ -11,6 +11,7 @@
 
 #include "flang/Lower/AbstractConverter.h"
 #include "flang/Optimizer/Builder/BoxValue.h"
+#include "flang/Optimizer/Dialect/MIF/MIFOps.h"
 
 namespace Fortran {
 
@@ -33,6 +34,10 @@ namespace pft {
 struct Evaluation;
 } // namespace pft
 
+mlir::SmallVector<mlir::Value>
+getCosubscripts(AbstractConverter &converter, mlir::Location loc,
+                const Fortran::evaluate::CoarrayRef &expr);
+
 //===----------------------------------------------------------------------===//
 // Synchronization statements
 //===----------------------------------------------------------------------===//
@@ -51,12 +56,47 @@ void genSyncTeamStatement(AbstractConverter &, const parser::SyncTeamStmt &);
 
 void genChangeTeamConstruct(AbstractConverter &, pft::Evaluation &eval,
                             const parser::ChangeTeamConstruct &);
-void genChangeTeamStmt(AbstractConverter &, pft::Evaluation &eval,
-                       const parser::ChangeTeamStmt &);
+mif::ChangeTeamOp genChangeTeamStmt(AbstractConverter &, pft::Evaluation &eval,
+                                    const parser::ChangeTeamStmt &);
 void genEndChangeTeamStmt(AbstractConverter &, pft::Evaluation &eval,
                           const parser::EndChangeTeamStmt &);
 void genFormTeamStatement(AbstractConverter &, pft::Evaluation &eval,
                           const parser::FormTeamStmt &);
+
+//===----------------------------------------------------------------------===//
+// COARRAY utils
+//===----------------------------------------------------------------------===//
+
+mlir::SmallVector<mlir::Value>
+getCosubscripts(AbstractConverter &converter, mlir::Location loc,
+                const evaluate::CoarrayRef &expr);
+
+mlir::Value genLowerCoBounds(AbstractConverter &converter, mlir::Location loc,
+                             const semantics::Symbol &sym);
+
+mlir::Value genUpperCoBounds(AbstractConverter &converter, mlir::Location loc,
+                             const semantics::Symbol &sym);
+
+mlir::Value genAllocateCoarray(
+    AbstractConverter &converter, mlir::Location loc,
+    const semantics::Symbol &sym, mlir::Value addr,
+    const std::optional<Fortran::parser::AllocateCoarraySpec> &allocSpec =
+        std::nullopt,
+    mlir::Value errMsg = {}, bool hasStat = false);
+
+void genAllocateNonAllocatableSaveCoarray(AbstractConverter &converter,
+                                          mlir::Location loc,
+                                          const semantics::Symbol &sym,
+                                          mlir::Value addr);
+
+//===----------------------------------------------------------------------===//
+// EVENT and NOTIFY statements
+//===----------------------------------------------------------------------===//
+
+void genNotifyWaitStatement(AbstractConverter &,
+                            const parser::NotifyWaitStmt &);
+void genEventPostStatement(AbstractConverter &, const parser::EventPostStmt &);
+void genEventWaitStatement(AbstractConverter &, const parser::EventWaitStmt &);
 
 //===----------------------------------------------------------------------===//
 // COARRAY expressions

@@ -31,40 +31,34 @@
 #include "llvm/CodeGen/MachineBasicBlock.h"
 #include "llvm/CodeGen/MachineDominators.h"
 #include "llvm/CodeGen/MachineFunction.h"
+#include "llvm/CodeGen/MachineFunctionAnalysisManager.h"
 #include "llvm/CodeGen/MachineFunctionPass.h"
 #include "llvm/CodeGen/MachineInstr.h"
 #include "llvm/CodeGen/MachineInstrBuilder.h"
+#include "llvm/CodeGen/MachinePassManager.h"
 #include "llvm/CodeGen/MachineRegisterInfo.h"
+#include "llvm/IR/Analysis.h"
 #include "llvm/InitializePasses.h"
-#include "llvm/Support/CommandLine.h"
 #include "llvm/Support/Debug.h"
 #include <algorithm>
 
 using namespace llvm;
 
-#define DEBUG_TYPE "riscv-zilsd-opt"
+#define DEBUG_TYPE "riscv-pre-alloc-zilsd-opt"
 
 STATISTIC(NumLDFormed, "Number of LD instructions formed");
 STATISTIC(NumSDFormed, "Number of SD instructions formed");
-
-static cl::opt<bool>
-    DisableZilsdOpt("disable-riscv-zilsd-opt", cl::Hidden, cl::init(false),
-                    cl::desc("Disable Zilsd load/store optimization"));
-
-static cl::opt<unsigned> MaxRescheduleDistance(
-    "riscv-zilsd-max-reschedule-distance", cl::Hidden, cl::init(10),
-    cl::desc("Maximum distance for rescheduling load/store instructions"));
 
 namespace {
 
 //===----------------------------------------------------------------------===//
 // Pre-allocation Zilsd optimization pass
 //===----------------------------------------------------------------------===//
-class RISCVPreAllocZilsdOpt : public MachineFunctionPass {
+class RISCVPreAllocZilsdOptLegacy : public MachineFunctionPass {
 public:
   static char ID;
 
-  RISCVPreAllocZilsdOpt() : MachineFunctionPass(ID) {}
+  RISCVPreAllocZilsdOptLegacy() : MachineFunctionPass(ID) {}
 
   bool runOnMachineFunction(MachineFunction &MF) override;
 
@@ -82,17 +76,20 @@ public:
     AU.setPreservesCFG();
     MachineFunctionPass::getAnalysisUsage(AU);
   }
+};
+
+class RISCVPreAllocZilsdOptImpl {
   enum class MemoryOffsetKind {
     Imm = 0,
     Global = 1,
     CPI = 2,
     BlockAddr = 3,
-    Unknown = 4,
+    FrameIdx = 4,
+    Unknown = 5,
   };
   using MemOffset = std::pair<MemoryOffsetKind, int>;
   using BaseRegInfo = std::pair<unsigned, MemoryOffsetKind>;
 
-private:
   bool isMemoryOp(const MachineInstr &MI);
   bool rescheduleLoadStoreInstrs(MachineBasicBlock *MBB);
   bool canFormLdSdPair(MachineInstr *MI0, MachineInstr *MI1);
@@ -110,29 +107,34 @@ private:
   AliasAnalysis *AA;
   MachineDominatorTree *DT;
   Align RequiredAlign;
+
+public:
+  bool runOnMachineFunction(MachineFunction &MF,
+                            function_ref<AliasAnalysis *()> GetAA,
+                            function_ref<MachineDominatorTree *()> GetMDT);
 };
 
 } // end anonymous namespace
 
-char RISCVPreAllocZilsdOpt::ID = 0;
+char RISCVPreAllocZilsdOptLegacy::ID = 0;
 
-INITIALIZE_PASS_BEGIN(RISCVPreAllocZilsdOpt, "riscv-prera-zilsd-opt",
+INITIALIZE_PASS_BEGIN(RISCVPreAllocZilsdOptLegacy, "riscv-prera-zilsd-opt",
                       "RISC-V pre-allocation Zilsd optimization", false, false)
 INITIALIZE_PASS_DEPENDENCY(AAResultsWrapperPass)
 INITIALIZE_PASS_DEPENDENCY(MachineDominatorTreeWrapperPass)
-INITIALIZE_PASS_END(RISCVPreAllocZilsdOpt, "riscv-prera-zilsd-opt",
+INITIALIZE_PASS_END(RISCVPreAllocZilsdOptLegacy, "riscv-prera-zilsd-opt",
                     "RISC-V pre-allocation Zilsd optimization", false, false)
 
 //===----------------------------------------------------------------------===//
 // Pre-allocation pass implementation
 //===----------------------------------------------------------------------===//
 
-bool RISCVPreAllocZilsdOpt::runOnMachineFunction(MachineFunction &MF) {
-
-  if (DisableZilsdOpt || skipFunction(MF.getFunction()))
-    return false;
-
+bool RISCVPreAllocZilsdOptImpl::runOnMachineFunction(
+    MachineFunction &MF, function_ref<AliasAnalysis *()> GetAA,
+    function_ref<MachineDominatorTree *()> GetMDT) {
   STI = &MF.getSubtarget<RISCVSubtarget>();
+  if (!STI->getCLOpts().zilsd_opt)
+    return false;
 
   // Only run on RV32 with Zilsd extension
   if (STI->is64Bit() || !STI->hasStdExtZilsd())
@@ -141,8 +143,8 @@ bool RISCVPreAllocZilsdOpt::runOnMachineFunction(MachineFunction &MF) {
   TII = STI->getInstrInfo();
   TRI = STI->getRegisterInfo();
   MRI = &MF.getRegInfo();
-  AA = &getAnalysis<AAResultsWrapperPass>().getAAResults();
-  DT = &getAnalysis<MachineDominatorTreeWrapperPass>().getDomTree();
+  AA = GetAA();
+  DT = GetMDT();
 
   // Check alignment: default is 8-byte, but allow 4-byte with tune feature
   // If unaligned scalar memory is enabled, allow any alignment
@@ -155,17 +157,21 @@ bool RISCVPreAllocZilsdOpt::runOnMachineFunction(MachineFunction &MF) {
   return Modified;
 }
 
-RISCVPreAllocZilsdOpt::MemOffset
-RISCVPreAllocZilsdOpt::getMemoryOpOffset(const MachineInstr &MI) {
+RISCVPreAllocZilsdOptImpl::MemOffset
+RISCVPreAllocZilsdOptImpl::getMemoryOpOffset(const MachineInstr &MI) {
   switch (MI.getOpcode()) {
   case RISCV::LW:
   case RISCV::SW: {
-    // For LW/SW, the offset is in operand 2
+    // For LW/SW, the base is in operand 1 and offset is in operand 2
+    const MachineOperand &BaseOp = MI.getOperand(1);
     const MachineOperand &OffsetOp = MI.getOperand(2);
 
     // Handle immediate offset
-    if (OffsetOp.isImm())
+    if (OffsetOp.isImm()) {
+      if (BaseOp.isFI())
+        return std::make_pair(MemoryOffsetKind::FrameIdx, OffsetOp.getImm());
       return std::make_pair(MemoryOffsetKind::Imm, OffsetOp.getImm());
+    }
 
     // Handle symbolic operands with MO_LO flag (from MergeBaseOffset)
     if (OffsetOp.getTargetFlags() & RISCVII::MO_LO) {
@@ -187,8 +193,8 @@ RISCVPreAllocZilsdOpt::getMemoryOpOffset(const MachineInstr &MI) {
   return std::make_pair(MemoryOffsetKind::Unknown, 0);
 }
 
-bool RISCVPreAllocZilsdOpt::canFormLdSdPair(MachineInstr *MI0,
-                                            MachineInstr *MI1) {
+bool RISCVPreAllocZilsdOptImpl::canFormLdSdPair(MachineInstr *MI0,
+                                                MachineInstr *MI1) {
   if (!MI0->hasOneMemOperand() || !MI1->hasOneMemOperand())
     return false;
 
@@ -207,16 +213,15 @@ bool RISCVPreAllocZilsdOpt::canFormLdSdPair(MachineInstr *MI0,
 
   // Check that the two destination/source registers are different for
   // load/store respectively.
-  Register FirstReg = MI0->getOperand(0).getReg();
-  Register SecondReg = MI1->getOperand(0).getReg();
-  if (FirstReg == SecondReg)
+  if (MI0->getOperand(0).getReg() == MI1->getOperand(0).getReg())
     return false;
 
   return true;
 }
 
-bool RISCVPreAllocZilsdOpt::isSafeToMove(MachineInstr *MI, MachineInstr *Target,
-                                         bool MoveForward) {
+bool RISCVPreAllocZilsdOptImpl::isSafeToMove(MachineInstr *MI,
+                                             MachineInstr *Target,
+                                             bool MoveForward) {
   MachineBasicBlock *MBB = MI->getParent();
   MachineBasicBlock::iterator Start = MI->getIterator();
   MachineBasicBlock::iterator End = Target->getIterator();
@@ -229,7 +234,7 @@ bool RISCVPreAllocZilsdOpt::isSafeToMove(MachineInstr *MI, MachineInstr *Target,
     ++Start;
 
   Register DefReg = MI->getOperand(0).getReg();
-  Register BaseReg = MI->getOperand(1).getReg();
+  const MachineOperand &BaseOp = MI->getOperand(1);
 
   unsigned ScanCount = 0;
   for (auto It = Start; It != End; ++It, ++ScanCount) {
@@ -247,8 +252,8 @@ bool RISCVPreAllocZilsdOpt::isSafeToMove(MachineInstr *MI, MachineInstr *Target,
     }
 
     // Check if the base register is modified
-    if (It->modifiesRegister(BaseReg, TRI)) {
-      LLVM_DEBUG(dbgs() << "Base register " << BaseReg
+    if (BaseOp.isReg() && It->modifiesRegister(BaseOp.getReg(), TRI)) {
+      LLVM_DEBUG(dbgs() << "Base register " << BaseOp.getReg()
                         << " modified by: " << *It);
       return false;
     }
@@ -278,7 +283,7 @@ bool RISCVPreAllocZilsdOpt::isSafeToMove(MachineInstr *MI, MachineInstr *Target,
   return true;
 }
 
-bool RISCVPreAllocZilsdOpt::rescheduleOps(
+bool RISCVPreAllocZilsdOptImpl::rescheduleOps(
     MachineBasicBlock *MBB, SmallVectorImpl<MachineInstr *> &MIs,
     BaseRegInfo Base, bool IsLoad,
     DenseMap<MachineInstr *, unsigned> &MI2LocMap) {
@@ -297,8 +302,10 @@ bool RISCVPreAllocZilsdOpt::rescheduleOps(
 
     Register FirstReg = MI0->getOperand(0).getReg();
     Register SecondReg = MI1->getOperand(0).getReg();
-    Register BaseReg = MI0->getOperand(1).getReg();
+    const MachineOperand &BaseOp = MI0->getOperand(1);
     const MachineOperand &OffsetOp = MI0->getOperand(2);
+    assert((BaseOp.isReg() || BaseOp.isFI()) &&
+           "Base register should be register or frame index");
 
     // At this point, MI0 and MI1 are:
     //    1. both either LW or SW.
@@ -329,7 +336,7 @@ bool RISCVPreAllocZilsdOpt::rescheduleOps(
     unsigned Distance = MI1IsLater ? MI2LocMap[MI1] - MI2LocMap[MI0]
                                    : MI2LocMap[MI0] - MI2LocMap[MI1];
     if (!isSafeToMove(MoveInstr, TargetInstr, !IsLoad) ||
-        Distance > MaxRescheduleDistance)
+        Distance > STI->getCLOpts().zilsd_max_reschedule_distance)
       continue;
 
     // Move the instruction to the target position
@@ -346,21 +353,23 @@ bool RISCVPreAllocZilsdOpt::rescheduleOps(
 
     if (IsLoad) {
       MIB = BuildMI(*MBB, InsertPos, DL, TII->get(RISCV::PseudoLD_RV32_OPT))
-                .addReg(FirstReg, RegState::Define)
-                .addReg(SecondReg, RegState::Define)
-                .addReg(BaseReg)
-                .add(OffsetOp);
+                .addDef(FirstReg)
+                .addDef(SecondReg);
       ++NumLDFormed;
       LLVM_DEBUG(dbgs() << "Formed LD: " << *MIB << "\n");
     } else {
       MIB = BuildMI(*MBB, InsertPos, DL, TII->get(RISCV::PseudoSD_RV32_OPT))
                 .addReg(FirstReg)
-                .addReg(SecondReg)
-                .addReg(BaseReg)
-                .add(OffsetOp);
+                .addReg(SecondReg);
       ++NumSDFormed;
       LLVM_DEBUG(dbgs() << "Formed SD: " << *MIB << "\n");
     }
+
+    if (BaseOp.isReg())
+      MIB = MIB.addReg(BaseOp.getReg());
+    else
+      MIB = MIB.addFrameIndex(BaseOp.getIndex());
+    MIB = MIB.add(OffsetOp);
 
     // Copy memory operands
     MIB.cloneMergedMemRefs({MI0, MI1});
@@ -389,12 +398,12 @@ bool RISCVPreAllocZilsdOpt::rescheduleOps(
   return Modified;
 }
 
-bool RISCVPreAllocZilsdOpt::isMemoryOp(const MachineInstr &MI) {
+bool RISCVPreAllocZilsdOptImpl::isMemoryOp(const MachineInstr &MI) {
   unsigned Opcode = MI.getOpcode();
   if (Opcode != RISCV::LW && Opcode != RISCV::SW)
     return false;
 
-  if (!MI.getOperand(1).isReg())
+  if (!MI.getOperand(1).isReg() && !MI.getOperand(1).isFI())
     return false;
 
   // When no memory operands are present, conservatively assume unaligned,
@@ -413,13 +422,14 @@ bool RISCVPreAllocZilsdOpt::isMemoryOp(const MachineInstr &MI) {
     return false;
 
   // Likewise don't mess with references to undefined addresses.
-  if (MI.getOperand(1).isUndef())
+  if (MI.getOperand(1).isReg() && MI.getOperand(1).isUndef())
     return false;
 
   return true;
 }
 
-bool RISCVPreAllocZilsdOpt::rescheduleLoadStoreInstrs(MachineBasicBlock *MBB) {
+bool RISCVPreAllocZilsdOptImpl::rescheduleLoadStoreInstrs(
+    MachineBasicBlock *MBB) {
   bool Modified = false;
 
   // Process the basic block in windows delimited by calls, terminators,
@@ -462,16 +472,21 @@ bool RISCVPreAllocZilsdOpt::rescheduleLoadStoreInstrs(MachineBasicBlock *MBB) {
         continue;
 
       bool IsLd = (MI.getOpcode() == RISCV::LW);
-      Register Base = MI.getOperand(1).getReg();
+      const MachineOperand &BaseOp = MI.getOperand(1);
+      unsigned Base;
+      if (BaseOp.isReg())
+        Base = BaseOp.getReg().id();
+      else
+        Base = BaseOp.getIndex();
       bool StopHere = false;
 
       // Lambda to find or add base register entries
       auto FindBases = [&](Base2InstMap &Base2Ops, BaseVec &Bases) {
-        auto [BI, Inserted] = Base2Ops.try_emplace({Base.id(), Offset.first});
+        auto [BI, Inserted] = Base2Ops.try_emplace({Base, Offset.first});
         if (Inserted) {
           // First time seeing this base register
           BI->second.push_back(&MI);
-          Bases.push_back({Base.id(), Offset.first});
+          Bases.push_back({Base, Offset.first});
           return;
         }
         // Check if we've seen this exact base+offset before
@@ -522,6 +537,34 @@ bool RISCVPreAllocZilsdOpt::rescheduleLoadStoreInstrs(MachineBasicBlock *MBB) {
 // Pass creation functions
 //===----------------------------------------------------------------------===//
 
-FunctionPass *llvm::createRISCVPreAllocZilsdOptPass() {
-  return new RISCVPreAllocZilsdOpt();
+FunctionPass *llvm::createRISCVPreAllocZilsdOptLegacyPass() {
+  return new RISCVPreAllocZilsdOptLegacy();
+}
+
+bool RISCVPreAllocZilsdOptLegacy::runOnMachineFunction(MachineFunction &MF) {
+  if (skipFunction(MF.getFunction()))
+    return false;
+  RISCVPreAllocZilsdOptImpl Impl;
+  return Impl.runOnMachineFunction(
+      MF, [&]() { return &getAnalysis<AAResultsWrapperPass>().getAAResults(); },
+      [&]() {
+        return &getAnalysis<MachineDominatorTreeWrapperPass>().getDomTree();
+      });
+}
+
+PreservedAnalyses
+RISCVPreAllocZilsdOptPass::run(MachineFunction &MF,
+                               MachineFunctionAnalysisManager &MFAM) {
+  RISCVPreAllocZilsdOptImpl Impl;
+  bool Changed = Impl.runOnMachineFunction(
+      MF,
+      [&]() {
+        return &MFAM.getResult<FunctionAnalysisManagerMachineFunctionProxy>(MF)
+                    .getManager()
+                    .getResult<AAManager>(MF.getFunction());
+      },
+      [&]() { return &MFAM.getResult<MachineDominatorTreeAnalysis>(MF); });
+  return Changed ? getMachineFunctionPassPreservedAnalyses()
+                       .preserveSet<CFGAnalyses>()
+                 : PreservedAnalyses::all();
 }

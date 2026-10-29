@@ -51,40 +51,47 @@ struct RelocAttrs {
   bool hasAttr(RelocAttrBits b) const { return (bits & b) == b; }
 };
 
-struct Reloc {
+class Relocation {
+public:
   uint8_t type = llvm::MachO::GENERIC_RELOC_INVALID;
   bool pcrel = false;
   uint8_t length = 0;
   // The offset from the start of the subsection that this relocation belongs
   // to.
   uint32_t offset = 0;
-  // Adding this offset to the address of the referent symbol or subsection
-  // gives the destination that this relocation refers to.
-  int64_t addend = 0;
   llvm::PointerUnion<Symbol *, InputSection *> referent = nullptr;
 
-  Reloc() = default;
+  Relocation() = default;
 
-  Reloc(uint8_t type, bool pcrel, uint8_t length, uint32_t offset,
-        int64_t addend, llvm::PointerUnion<Symbol *, InputSection *> referent)
+  Relocation(uint8_t type, bool pcrel, uint8_t length, uint32_t offset,
+             int64_t addend,
+             llvm::PointerUnion<Symbol *, InputSection *> referent)
       : type(type), pcrel(pcrel), length(length), offset(offset),
-        addend(addend), referent(referent) {}
+        referent(referent), addend(addend) {}
+
+  int64_t getAddend() const { return addend; }
+  void setAddend(int64_t value) { addend = value; }
 
   InputSection *getReferentInputSection() const;
 
   // Must point to an offset within a CStringInputSection or a
   // ConcatInputSection.
   llvm::StringRef getReferentString() const;
+
+private:
+  // Adding this offset to the address of the referent symbol or subsection
+  // gives the destination that this relocation refers to.
+  int64_t addend = 0;
 };
 
 bool validateSymbolRelocation(const Symbol *, const InputSection *,
-                              const Reloc &);
+                              const Relocation &);
 
 /*
  * v: The value the relocation is attempting to encode
  * bits: The number of bits actually available to encode this relocation
  */
-void reportRangeError(void *loc, const Reloc &, const llvm::Twine &v,
+void reportRangeError(void *loc, const Relocation &, const llvm::Twine &v,
                       uint8_t bits, int64_t min, uint64_t max);
 
 struct SymbolDiagnostic {

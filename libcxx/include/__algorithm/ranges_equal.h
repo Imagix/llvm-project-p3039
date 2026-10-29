@@ -42,7 +42,7 @@ struct __equal {
             class _Proj1 = identity,
             class _Proj2 = identity>
     requires indirectly_comparable<_Iter1, _Iter2, _Pred, _Proj1, _Proj2>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(
+  [[nodiscard]] constexpr bool operator()(
       _Iter1 __first1,
       _Sent1 __last1,
       _Iter2 __first2,
@@ -50,7 +50,7 @@ struct __equal {
       _Pred __pred   = {},
       _Proj1 __proj1 = {},
       _Proj2 __proj2 = {}) const {
-    static constexpr bool __both_sized = sized_sentinel_for<_Sent1, _Iter1> && sized_sentinel_for<_Sent2, _Iter2>;
+    constexpr bool __both_sized = sized_sentinel_for<_Sent1, _Iter1> && sized_sentinel_for<_Sent2, _Iter2>;
     if constexpr (__both_sized) {
       if (__last1 - __first1 != __last2 - __first2)
         return false;
@@ -69,9 +69,9 @@ struct __equal {
             class _Proj1 = identity,
             class _Proj2 = identity>
     requires indirectly_comparable<iterator_t<_Range1>, iterator_t<_Range2>, _Pred, _Proj1, _Proj2>
-  [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr bool operator()(
+  [[nodiscard]] constexpr bool operator()(
       _Range1&& __range1, _Range2&& __range2, _Pred __pred = {}, _Proj1 __proj1 = {}, _Proj2 __proj2 = {}) const {
-    static constexpr bool __both_sized = sized_range<_Range1> && sized_range<_Range2>;
+    constexpr bool __both_sized = sized_range<_Range1> && sized_range<_Range2>;
     if constexpr (__both_sized) {
       if (ranges::size(__range1) != ranges::size(__range2))
         return false;

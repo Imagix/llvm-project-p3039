@@ -94,6 +94,7 @@
 #include "llvm/IR/IntrinsicsPowerPC.h"
 #include "llvm/IR/Type.h"
 #include "llvm/IR/Value.h"
+#include "llvm/InitializePasses.h"
 #include "llvm/Pass.h"
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/CommandLine.h"
@@ -552,6 +553,7 @@ bool PPCLoopInstrFormPrep::rewriteLoadStoresForCommoningChains(
     const SCEV *BaseSCEV =
         ChainIdx ? SE->getAddExpr(Bucket.BaseSCEV,
                                   Bucket.Elements[BaseElemIdx].Offset)
+                       .getPointer()
                  : Bucket.BaseSCEV;
     const SCEVAddRecExpr *BasePtrSCEV = cast<SCEVAddRecExpr>(BaseSCEV);
 
@@ -628,7 +630,7 @@ bool PPCLoopInstrFormPrep::rewriteLoadStoresForCommoningChains(
 //   ...
 //   %add = getelementptr %phinode, %inc
 //
-// First returned instruciton is %phinode (or a type cast to %phinode), caller
+// First returned instruction is %phinode (or a type cast to %phinode), caller
 // needs this value to rewrite other load/stores in the same chain.
 // Second returned instruction is %add, caller needs this value to rewrite other
 // load/stores in the same chain.

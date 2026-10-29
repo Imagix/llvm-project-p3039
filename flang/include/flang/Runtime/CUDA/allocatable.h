@@ -20,14 +20,14 @@ extern "C" {
 int RTDECL(CUFAllocatableAllocate)(Descriptor &, int64_t *stream = nullptr,
     bool *pinned = nullptr, bool hasStat = false,
     const Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
-    int sourceLine = 0);
+    int sourceLine = 0, bool deviceInit = false);
 
 /// Perform allocation of the descriptor with synchronization of it when
 /// necessary.
 int RTDECL(CUFAllocatableAllocateSync)(Descriptor &, int64_t *stream = nullptr,
     bool *pinned = nullptr, bool hasStat = false,
     const Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
-    int sourceLine = 0);
+    int sourceLine = 0, bool deviceInit = false);
 
 /// Perform allocation of the descriptor without synchronization. Assign data
 /// from source.
@@ -50,6 +50,10 @@ int RTDEF(CUFAllocatableAllocateSourceSync)(Descriptor &alloc,
 int RTDECL(CUFAllocatableDeallocate)(Descriptor &, bool hasStat = false,
     const Descriptor *errMsg = nullptr, const char *sourceFile = nullptr,
     int sourceLine = 0);
+
+/// True unless the device's primary context has been torn down (e.g. by a user
+/// cudaDeviceReset()); used to skip scope-exit device frees safely.
+bool RTDECL(CUFDeviceIsActive)();
 
 } // extern "C"
 

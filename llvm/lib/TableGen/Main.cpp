@@ -19,6 +19,7 @@
 #include "TGParser.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/Twine.h"
+#include "llvm/Support/AutoConvert.h"
 #include "llvm/Support/CommandLine.h"
 #include "llvm/Support/ErrorOr.h"
 #include "llvm/Support/FileSystem.h"
@@ -97,6 +98,16 @@ static int createDependencyFile(const TGParser &Parser, const char *argv0) {
     return reportError(argv0, "error opening " + DependFilename + ":" +
                                   EC.message() + "\n");
   DepOut.os() << OutputFilename << ":";
+
+  // Emit the primary input file as a dependency. This matches C compilers like
+  // Clang and GCC. Without it, a .td file with no `include` directives would
+  // produce a depfile listing zero dependencies. CMake's
+  // `cmake_transform_depfile` then collapses that to a 0-byte file, which Ninja
+  // treats as a missing depfile and re-runs the rule on every incremental
+  // build.
+  if (InputFilename != "-")
+    DepOut.os() << ' ' << InputFilename;
+
   for (const auto &Dep : Parser.getDependencies()) {
     DepOut.os() << ' ' << Dep;
   }
@@ -105,8 +116,8 @@ static int createDependencyFile(const TGParser &Parser, const char *argv0) {
   return 0;
 }
 
-static int WriteOutput(const TGParser &Parser, const char *argv0,
-                       StringRef Filename, StringRef Content) {
+static int WriteOutput(const char *argv0, StringRef Filename,
+                       StringRef Content) {
   if (WriteIfChanged) {
     // Only updates the real output file if there are any differences.
     // This prevents recompilation of all the files depending on it if there
@@ -120,6 +131,16 @@ static int WriteOutput(const TGParser &Parser, const char *argv0,
   if (EC)
     return reportError(argv0, "error opening " + Filename + ": " +
                                   EC.message() + "\n");
+#ifdef __MVS__
+  // On z/OS, text files default to IBM-1047, but generated files are UTF-8.
+  // Tag the file as UTF-8 before any content is written.
+  if (Filename != "-") {
+    EC = setzOSFileTag(OutFile.os().get_fd(), CCSID_UTF_8, /*IsText=*/true);
+    if (EC)
+      return reportError(argv0, "error tagging " + Filename + ": " +
+                                    EC.message() + "\n");
+  }
+#endif
   OutFile.os() << Content;
   if (ErrorsPrinted == 0)
     OutFile.keep();
@@ -187,7 +208,7 @@ int llvm::TableGenMain(const char *argv0, MultiFileTableGenMainFn MainFn) {
   }
 
   Timer.startTimer("Write output");
-  if (int Ret = WriteOutput(Parser, argv0, OutputFilename, OutFiles.MainFile))
+  if (int Ret = WriteOutput(argv0, OutputFilename, OutFiles.MainFile))
     return Ret;
   for (auto [Suffix, Content] : OutFiles.AdditionalFiles) {
     SmallString<128> Filename(OutputFilename);
@@ -196,7 +217,7 @@ int llvm::TableGenMain(const char *argv0, MultiFileTableGenMainFn MainFn) {
       sys::path::replace_extension(Filename, "");
       Filename.append(Suffix);
     }
-    if (int Ret = WriteOutput(Parser, argv0, Filename, Content))
+    if (int Ret = WriteOutput(argv0, Filename, Content))
       return Ret;
   }
 
@@ -214,7 +235,7 @@ int llvm::TableGenMain(const char *argv0, TableGenMainFn MainFn) {
     std::string S;
     raw_string_ostream OS(S);
     int Res = MainFn(OS, Records);
-    OutFiles = {S, {}};
+    OutFiles = {std::move(S), {}};
     return Res;
   });
 }

@@ -109,7 +109,6 @@ if [[ ! -f ${LIBCXX_BUILD}/build.ninja ]]; then
     -DLIBCXXABI_ENABLE_ASSERTIONS=OFF \
     -DLIBCXXABI_ENABLE_EXCEPTIONS=OFF \
     -DLIBCXXABI_USE_LLVM_UNWINDER=OFF \
-    -DLIBCXX_ENABLE_ASSERTIONS=OFF \
     -DLIBCXX_ENABLE_EXCEPTIONS=OFF \
     -DLIBCXX_ENABLE_RTTI=OFF \
     -DCMAKE_SHARED_LINKER_FLAGS="$LINKFLAGS" \
@@ -147,7 +146,7 @@ if [[ ! -f ${LLVM_BUILD}/build.ninja ]]; then
   $LLVM_SRC
 fi
 cd ${LLVM_BUILD}
-ninja LLVMSymbolize LLVMObject LLVMBinaryFormat LLVMDebugInfoDWARF LLVMDebugInfoGSYM LLVMSupport LLVMDebugInfoPDB LLVMDebuginfod LLVMMC LLVMDemangle LLVMTextAPI LLVMTargetParser LLVMCore
+ninja LLVMSymbolize LLVMObject LLVMBinaryFormat LLVMDebugInfoDWARF LLVMDebugInfoGSYM LLVMSupport LLVMDebugInfoPDB LLVMDebuginfod LLVMMC LLVMDemangle LLVMTextAPI LLVMTargetParser LLVMCore LLVMOption
 
 cd ${BUILD_DIR}
 rm -rf ${SYMBOLIZER_BUILD}
@@ -188,6 +187,7 @@ $LINK $LIBCXX_ARCHIVE_DIR/libc++.a \
       $LLVM_BUILD/lib/libLLVMTextAPI.a \
       $LLVM_BUILD/lib/libLLVMTargetParser.a \
       $LLVM_BUILD/lib/libLLVMCore.a \
+      $LLVM_BUILD/lib/libLLVMOption.a \
       $ZLIB_BUILD/libz.a \
       symbolizer.a \
       -ignore-non-bitcode -o all.bc

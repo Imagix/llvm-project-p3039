@@ -15,6 +15,7 @@
 
 #include "LoongArchRegisterInfo.h"
 #include "llvm/CodeGen/TargetInstrInfo.h"
+#include <optional>
 
 #define GET_INSTRINFO_HEADER
 #include "LoongArchGenInstrInfo.inc"
@@ -31,6 +32,11 @@ public:
 
   const LoongArchRegisterInfo &getRegisterInfo() const { return RegInfo; }
 
+  const TargetRegisterClass *getInlineAsmMemoryOperandRegClass(
+      InlineAsm::ConstraintCode C) const override {
+    return &LoongArch::GPRRegClass;
+  }
+
   MCInst getNop() const override;
 
   void copyPhysReg(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
@@ -45,7 +51,17 @@ public:
   void loadRegFromStackSlot(
       MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI, Register DstReg,
       int FrameIndex, const TargetRegisterClass *RC, Register VReg,
+      unsigned SubReg = 0,
       MachineInstr::MIFlag Flags = MachineInstr::NoFlags) const override;
+
+  Register isLoadFromStackSlot(const MachineInstr &MI,
+                               int &FrameIndex) const override;
+  Register isLoadFromStackSlot(const MachineInstr &MI, int &FrameIndex,
+                               TypeSize &MemBytes) const override;
+  Register isStoreToStackSlot(const MachineInstr &MI,
+                              int &FrameIndex) const override;
+  Register isStoreToStackSlot(const MachineInstr &MI, int &FrameIndex,
+                              TypeSize &MemBytes) const override;
 
   // Materializes the given integer Val into DstReg.
   void movImm(MachineBasicBlock &MBB, MachineBasicBlock::iterator MBBI,
@@ -55,6 +71,8 @@ public:
   unsigned getInstSizeInBytes(const MachineInstr &MI) const override;
 
   bool isAsCheapAsAMove(const MachineInstr &MI) const override;
+
+  int getJumpTableIndex(const MachineInstr &MI) const override;
 
   MachineBasicBlock *getBranchDestBlock(const MachineInstr &MI) const override;
 
@@ -103,6 +121,13 @@ public:
                            ExtAddrMode &AM) const override;
   MachineInstr *emitLdStWithAddr(MachineInstr &MemI,
                                  const ExtAddrMode &AM) const override;
+
+  bool useMachineCombiner() const override { return true; }
+
+  bool isAssociativeAndCommutative(const MachineInstr &Inst,
+                                   bool Invert) const override;
+
+  std::optional<unsigned> getInverseOpcode(unsigned Opcode) const override;
 
 protected:
   const LoongArchSubtarget &STI;
